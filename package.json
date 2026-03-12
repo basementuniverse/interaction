@@ -1,6 +1,6 @@
 {
   "name": "@basementuniverse/interaction",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "A component for handling common interactions in browser games",
   "author": "Gordon Larrigan <gordonlarrigan@gmail.com> (https://gordonlarrigan.com)",
   "license": "MIT",
