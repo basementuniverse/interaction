@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drag Demo - Interaction System</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+    }
+    .canvas-section {
+      display: flex;
+      flex-direction: column;
+    }
+    canvas {
+      border: 2px solid #333;
+      background: white;
+      display: block;
+    }
+    .info {
+      flex: 1;
+      padding: 20px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow-y: auto;
+      max-height: 600px;
+    }
+    .info h2 {
+      margin-top: 0;
+    }
+    .event-log {
+      font-family: monospace;
+      font-size: 12px;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 3px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .event-log div {
+      margin: 2px 0;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Drag Demo - Draggable, DropZone, Resizable, Rotatable</h1>
+
+  <div class="container">
+    <div class="canvas-section">
+      <canvas id="canvas" width="800" height="600"></canvas>
+    </div>
+
+    <div class="info">
+      <h2>Demo Information</h2>
+      <p><strong>Behaviors demonstrated:</strong></p>
+      <ul>
+        <li><strong>Draggable:</strong> Drag items with constraints and bounds</li>
+        <li><strong>DropZone:</strong> Drop zones accept draggable items</li>
+        <li><strong>Resizable:</strong> Resize with corner and edge handles</li>
+        <li><strong>Rotatable:</strong> Rotate by dragging from center</li>
+      </ul>
+
+      <p><strong>Try this:</strong></p>
+      <ul>
+        <li><strong>Green box (top-left):</strong> Drag freely, will snap to grid when released</li>
+        <li><strong>Teal box (top):</strong> Extra free-drag item (used for selective drop zone)</li>
+        <li><strong>Blue box (top-center):</strong> Drag horizontally only</li>
+        <li><strong>Red box (top-right):</strong> Drag vertically only</li>
+        <li><strong>Drop Zone 1 (left):</strong> Accepts all draggable boxes</li>
+        <li><strong>Drop Zone 2 (right):</strong> Accepts only the teal "Special" box</li>
+        <li><strong>Teal box drop rule:</strong> Must be dropped in a valid drop zone or it snaps back</li>
+        <li><strong>Drop zones:</strong> Border color shows hover state (acceptable vs not acceptable)</li>
+        <li><strong>Orange box (bottom-right):</strong> Drag corners/edges to resize</li>
+        <li><strong>Purple circle (center-right):</strong> Drag the ring to rotate</li>
+      </ul>
+
+      <p><strong>Event Log:</strong></p>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+
+  <script src="../build/index.js"></script>
+  <script src="./input-manager.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const eventLog = document.getElementById('eventLog');
+
+    // Initialize InputManager
+    const InputManager = window.default;
+    InputManager.initialise({ element: canvas });
+
+    // Create interaction system
+    const system = new InteractionSystem();
+
+    function getRenderOrderedInteractables() {
+      return system.interactables
+        .map((interactable, index) => ({ interactable, index }))
+        .sort((a, b) => {
+          const zDiff = a.interactable.interactionState.zIndex - b.interactable.interactionState.zIndex;
+          if (zDiff !== 0) {
+            return zDiff;
+          }
+          return b.index - a.index;
+        })
+        .map(entry => entry.interactable);
+    }
+
+    // Helper function to get top-left from state
+    function getTopLeft(state) {
+      const { anchor, position, size } = state;
+      const x = position.x - (anchor.includes('right') ? size.x : anchor.includes('left') || anchor === 'top' || anchor === 'bottom' ? 0 : size.x / 2);
+      const y = position.y - (anchor.includes('bottom') ? size.y : anchor.includes('top') || anchor === 'left' || anchor === 'right' ? 0 : size.y / 2);
+      return { x, y };
+    }
+
+    function addLog(message) {
+      const div = document.createElement('div');
+      div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+      eventLog.insertBefore(div, eventLog.firstChild);
+      while (eventLog.children.length > 10) {
+        eventLog.removeChild(eventLog.lastChild);
+      }
+    }
+
+    // ============= Draggable Items =============
+
+    // Free drag box (green)
+    const freeDragState = new InteractionState(
+      'free-drag',
+      { x: 100, y: 80 },
+      { x: 120, y: 80 }
+    );
+    freeDragState.zIndex = 20;
+    const freeDragItem = {
+      interactionState: freeDragState,
+      type: 'draggable',
+      color: '#4ECDC4',
+      label: 'Free Drag',
+    };
+
+    const freeDraggable = {
+      type: BehaviorType.Draggable,
+      state: 'idle',
+      bringToFrontOnDrag: true,
+      onDragStart: () => addLog('Free drag started'),
+      onDrag: (pos) => {
+        freeDragState.position.x = pos.x;
+        freeDragState.position.y = pos.y;
+      },
+      onDragEnd: () => addLog('Free drag ended'),
+      onCancel: () => addLog('Free drag cancelled'),
+    };
+
+    system.register(freeDragItem, freeDraggable);
+
+    // Special free drag box (teal) - used for selective drop zone acceptance
+    const specialDragState = new InteractionState(
+      'special-drag',
+      { x: 250, y: 80 },
+      { x: 120, y: 80 }
+    );
+    specialDragState.zIndex = 20;
+    const specialDragItem = {
+      interactionState: specialDragState,
+      type: 'draggable',
+      color: '#2EC4B6',
+      label: 'Special',
+    };
+
+    const specialDraggable = {
+      type: BehaviorType.Draggable,
+      state: 'idle',
+      bringToFrontOnDrag: true,
+      dropInDropZoneOnly: true,
+      onDragStart: () => addLog('Special drag started'),
+      onDrag: (pos) => {
+        specialDragState.position.x = pos.x;
+        specialDragState.position.y = pos.y;
+      },
+      onDragEnd: () => addLog('Special drag ended'),
+      onCancel: () => addLog('Special drag cancelled'),
+    };
+
+    system.register(specialDragItem, specialDraggable);
+
+    // Horizontal drag box (blue)
+    const horizDragState = new InteractionState(
+      'horiz-drag',
+      { x: 400, y: 80 },
+      { x: 120, y: 80 }
+    );
+    horizDragState.zIndex = 20;
+    const horizDragItem = {
+      interactionState: horizDragState,
+      type: 'draggable',
+      color: '#6C5CE7',
+      label: 'H-Drag Only',
+    };
+
+    const horizDraggable = {
+      type: BehaviorType.Draggable,
+      state: 'idle',
+      axisConstraint: 'x',
+      bounds: { min: { x: 0, y: 80 }, max: { x: 680, y: 80 } },
+      onDragStart: () => addLog('Horizontal drag started'),
+      onDrag: (pos) => {
+        horizDragState.position.x = pos.x;
+      },
+      onDragEnd: () => addLog('Horizontal drag ended'),
+      onCancel: () => addLog('Horizontal drag cancelled'),
+    };
+
+    system.register(horizDragItem, horizDraggable);
+
+    // Vertical drag box (red)
+    const vertDragState = new InteractionState(
+      'vert-drag',
+      { x: 600, y: 80 },
+      { x: 120, y: 80 }
+    );
+    vertDragState.zIndex = 20;
+    const vertDragItem = {
+      interactionState: vertDragState,
+      type: 'draggable',
+      color: '#FF7675',
+      label: 'V-Drag Only',
+    };
+
+    const vertDraggable = {
+      type: BehaviorType.Draggable,
+      state: 'idle',
+      axisConstraint: 'y',
+      bounds: { min: { x: 600, y: 0 }, max: { x: 600, y: 480 } },
+      onDragStart: () => addLog('Vertical drag started'),
+      onDrag: (pos) => {
+        vertDragState.position.y = pos.y;
+      },
+      onDragEnd: () => addLog('Vertical drag ended'),
+      onCancel: () => addLog('Vertical drag cancelled'),
+    };
+
+    system.register(vertDragItem, vertDraggable);
+
+    // ============= Drop Zones =============
+
+    const dropZone1State = new InteractionState(
+      'dropzone-1',
+      { x: 150, y: 350 },
+      { x: 150, y: 100 }
+    );
+    dropZone1State.zIndex = 0;
+    const dropZone1 = {
+      interactionState: dropZone1State,
+      type: 'dropzone',
+      color: '#A8D8EA',
+      label: 'Zone 1',
+      droppedItems: [],
+    };
+
+    const dropZone1Behavior = {
+      type: BehaviorType.DropZone,
+      state: 'empty',
+      hoveredState: 'idle',
+      interactables: [],
+      offset: ({ index }) => ({ x: index * 16, y: index * 12 }),
+      accepts: (draggable) => {
+        return [freeDragItem, specialDragItem, horizDragItem, vertDragItem].includes(draggable);
+      },
+      onDragEnter: (draggable) => {
+        addLog('Drag enter zone 1');
+      },
+      onDragLeave: (draggable) => {
+        addLog('Drag leave zone 1');
+      },
+      onDrop: (draggable) => {
+        dropZone1.droppedItems.push(draggable);
+        addLog('Dropped in zone 1');
+      },
+    };
+
+    system.register(dropZone1, dropZone1Behavior);
+
+    const dropZone2State = new InteractionState(
+      'dropzone-2',
+      { x: 310, y: 350 },
+      { x: 200, y: 100 }
+    );
+    dropZone2State.zIndex = 0;
+    const dropZone2 = {
+      interactionState: dropZone2State,
+      type: 'dropzone',
+      color: '#F8B4B4',
+      label: 'Zone 2',
+      droppedItems: [],
+    };
+
+    const dropZone2Behavior = {
+      type: BehaviorType.DropZone,
+      state: 'empty',
+      hoveredState: 'idle',
+      interactables: [],
+      maxInteractables: 1,
+      accepts: (draggable) => {
+        return draggable?.interactionState?.id === 'special-drag';
+      },
+      onDragEnter: (draggable) => {
+        addLog('Drag enter zone 2');
+      },
+      onDragLeave: (draggable) => {
+        addLog('Drag leave zone 2');
+      },
+      onDrop: (draggable) => {
+        dropZone2.droppedItems.push(draggable);
+        addLog('Dropped in zone 2');
+      },
+    };
+
+    system.register(dropZone2, dropZone2Behavior);
+
+    // ============= Resizable Box =============
+
+    const resizableState = new InteractionState(
+      'resizable',
+      { x: 620, y: 400 },
+      { x: 150, y: 150 }
+    );
+    resizableState.anchor = 'top-left';
+    resizableState.zIndex = 10;
+
+    const resizableItem = {
+      interactionState: resizableState,
+      type: 'resizable',
+      color: '#FFD93D',
+      label: 'Resizable',
+      originalSize: { x: 150, y: 150 },
+    };
+
+    const resizableBehavior = {
+      type: BehaviorType.Resizable,
+      state: 'idle',
+      hoveredHandle: null,
+      size: { x: 150, y: 150 },
+      minSize: { x: 80, y: 80 },
+      maxSize: { x: 250, y: 250 },
+      handles: ['top', 'left', 'right', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right'],
+      handleSize: 20,
+      onResizeStart: () => addLog('Resize started'),
+      onResize: (newSize) => {
+         // The library automatically updates both state and behavior sizes
+      },
+      onResizeEnd: () => addLog('Resize ended'),
+      onCancel: () => addLog('Resize cancelled'),
+      onHandleEnter: (handle) => addLog(`Handle hovered: ${handle}`),
+      onHandleLeave: (handle) => addLog(`Handle left: ${handle}`),
+    };
+
+    system.register(resizableItem, resizableBehavior);
+
+    // ============= Rotatable Circle =============
+
+    const rotatableState = new InteractionState(
+      'rotatable',
+      { x: 150, y: 530 },
+      { x: 120, y: 120 }
+    );
+    rotatableState.zIndex = 10;
+
+    const rotatableItem = {
+      interactionState: rotatableState,
+      type: 'rotatable',
+      color: '#BB86FC',
+      label: 'Rotate',
+      angle: 0,
+    };
+
+    const rotatableBehavior = {
+      type: BehaviorType.Rotatable,
+      state: 'idle',
+      angle: 0,
+      minAngle: -Math.PI * 2,
+      maxAngle: Math.PI * 2,
+      snapAngle: Math.PI / 8,
+      rotationCenter: { x: 150, y: 530 },
+      onRotateStart: () => addLog('Rotate started'),
+      onRotate: (newAngle) => {
+        rotatableItem.angle = newAngle;
+      },
+      onRotateEnd: () => addLog('Rotate ended'),
+      onCancel: () => addLog('Rotate cancelled'),
+    };
+
+    system.register(rotatableItem, rotatableBehavior);
+
+    // ============= Game Loop =============
+
+    let lastTime = Date.now();
+    function gameLoop() {
+      const now = Date.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      system.update(dt, InputManager);
+
+      // Clear canvas
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      getRenderOrderedInteractables().forEach(interactable => {
+        if (interactable.type === 'dropzone') {
+          const topLeft = getTopLeft(interactable.interactionState);
+          const behavior = interactable.interactionState.behaviors.find(
+            b => b.type === BehaviorType.DropZone
+          );
+
+          const hoveredState = behavior?.hoveredState ?? 'idle';
+          let borderColor = '#333';
+          if (hoveredState === 'hovered_acceptable') {
+            borderColor = '#00A651';
+          } else if (hoveredState === 'hovered_not_acceptable') {
+            borderColor = '#D7263D';
+          }
+
+          ctx.fillStyle = interactable.color;
+          ctx.fillRect(topLeft.x, topLeft.y, interactable.interactionState.size.x, interactable.interactionState.size.y);
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(topLeft.x, topLeft.y, interactable.interactionState.size.x, interactable.interactionState.size.y);
+
+          if (hoveredState !== 'idle') {
+            ctx.strokeStyle = borderColor;
+            ctx.lineWidth = 4;
+            ctx.strokeRect(topLeft.x - 2, topLeft.y - 2, interactable.interactionState.size.x + 4, interactable.interactionState.size.y + 4);
+          }
+
+          ctx.fillStyle = '#000';
+          ctx.font = '14px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(
+            interactable.label,
+            topLeft.x + interactable.interactionState.size.x / 2,
+            topLeft.y + interactable.interactionState.size.y / 2
+          );
+          return;
+        }
+
+        if (interactable.type === 'resizable') {
+          const resizeTopLeft = getTopLeft(interactable.interactionState);
+          ctx.fillStyle = interactable.color;
+          ctx.fillRect(resizeTopLeft.x, resizeTopLeft.y, interactable.interactionState.size.x, interactable.interactionState.size.y);
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(resizeTopLeft.x, resizeTopLeft.y, interactable.interactionState.size.x, interactable.interactionState.size.y);
+
+          const handlePositions = {
+            'top-left': { x: resizeTopLeft.x, y: resizeTopLeft.y },
+            'top-right': { x: resizeTopLeft.x + interactable.interactionState.size.x, y: resizeTopLeft.y },
+            'bottom-left': { x: resizeTopLeft.x, y: resizeTopLeft.y + interactable.interactionState.size.y },
+            'bottom-right': { x: resizeTopLeft.x + interactable.interactionState.size.x, y: resizeTopLeft.y + interactable.interactionState.size.y },
+            'top': { x: resizeTopLeft.x + interactable.interactionState.size.x / 2, y: resizeTopLeft.y },
+            'bottom': { x: resizeTopLeft.x + interactable.interactionState.size.x / 2, y: resizeTopLeft.y + interactable.interactionState.size.y },
+            'left': { x: resizeTopLeft.x, y: resizeTopLeft.y + interactable.interactionState.size.y / 2 },
+            'right': { x: resizeTopLeft.x + interactable.interactionState.size.x, y: resizeTopLeft.y + interactable.interactionState.size.y / 2 },
+          };
+
+          Object.entries(handlePositions).forEach(([handleName, pos]) => {
+            const isHovered = resizableBehavior.hoveredHandle === handleName;
+            ctx.fillStyle = isHovered ? '#FF6B6B' : '#333';
+            ctx.fillRect(pos.x - 10, pos.y - 10, 20, 20);
+            if (isHovered) {
+              ctx.strokeStyle = '#FF0000';
+              ctx.lineWidth = 2;
+              ctx.strokeRect(pos.x - 10, pos.y - 10, 20, 20);
+            }
+          });
+          return;
+        }
+
+        if (interactable.type === 'rotatable') {
+          ctx.save();
+          ctx.translate(interactable.interactionState.position.x, interactable.interactionState.position.y);
+          ctx.rotate(interactable.angle);
+
+          ctx.fillStyle = interactable.color;
+          ctx.beginPath();
+          ctx.arc(0, 0, 60, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(50, 0);
+          ctx.stroke();
+
+          ctx.restore();
+          return;
+        }
+
+        const topLeft = getTopLeft(interactable.interactionState);
+        ctx.fillStyle = interactable.color;
+        ctx.fillRect(topLeft.x, topLeft.y, interactable.interactionState.size.x, interactable.interactionState.size.y);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(topLeft.x, topLeft.y, interactable.interactionState.size.x, interactable.interactionState.size.y);
+
+        ctx.fillStyle = '#000';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          interactable.label,
+          topLeft.x + interactable.interactionState.size.x / 2,
+          topLeft.y + interactable.interactionState.size.y / 2
+        );
+      });
+
+      // Update input manager last
+      InputManager.update();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>

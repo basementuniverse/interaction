@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Click Demo - Interaction System</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+    }
+    .canvas-section {
+      display: flex;
+      flex-direction: column;
+    }
+    canvas {
+      border: 2px solid #333;
+      background: white;
+      display: block;
+    }
+    .controls {
+      margin-top: 20px;
+      padding: 15px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .controls label {
+      display: block;
+      margin: 8px 0;
+      cursor: pointer;
+    }
+    .info {
+      flex: 1;
+      padding: 20px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow-y: auto;
+      max-height: 600px;
+    }
+    .info h2 {
+      margin-top: 0;
+    }
+    .event-log {
+      font-family: monospace;
+      font-size: 12px;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 3px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .event-log div {
+      margin: 2px 0;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Click Demo - Clickable, Hoverable, Focusable, Selectable</h1>
+
+  <div class="container">
+    <div class="canvas-section">
+      <canvas id="canvas" width="600" height="400"></canvas>
+      <div class="controls">
+        <label>
+          <input type="checkbox" id="disableButton">
+          Disable Red Button
+        </label>
+      </div>
+    </div>
+
+    <div class="info">
+      <h2>Demo Information</h2>
+      <p><strong>Behaviors demonstrated:</strong></p>
+      <ul>
+        <li><strong>Hoverable:</strong> Buttons highlight on hover</li>
+        <li><strong>Focusable:</strong> Press T to focus items, arrow keys to navigate</li>
+        <li><strong>Clickable:</strong> Single click, double click, long press events</li>
+        <li><strong>Selectable:</strong> Toggle selection with click</li>
+        <li><strong>Disableable:</strong> Disable checkbox prevents interaction</li>
+      </ul>
+
+      <p><strong>Try this:</strong></p>
+      <ul>
+        <li>Click the buttons and watch for click events</li>
+        <li>Press and hold for long press (0.6s)</li>
+        <li>Double-click quickly for double click event</li>
+        <li>Press T to focus items, use arrow keys to move focus</li>
+        <li>Click toggles to select items</li>
+        <li>Check the disable box to disable the red button</li>
+      </ul>
+
+      <p><strong>Event Log:</strong></p>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+
+  <script src="../build/index.js"></script>
+  <script src="./input-manager.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const eventLog = document.getElementById('eventLog');
+    const disableCheckbox = document.getElementById('disableButton');
+
+    // Initialize InputManager
+    const InputManager = window.default;
+    InputManager.initialise({ element: canvas });
+
+    // Create interaction system
+    const system = new InteractionSystem({
+      keyBindings: {
+        focusNext: ['KeyT'],
+        focusPrevious: ['LeftShift+KeyT'],
+      },
+    });
+
+    function getRenderOrderedInteractables() {
+      return system.interactables
+        .map((interactable, index) => ({ interactable, index }))
+        .sort((a, b) => {
+          const zDiff = a.interactable.interactionState.zIndex - b.interactable.interactionState.zIndex;
+          if (zDiff !== 0) {
+            return zDiff;
+          }
+          return b.index - a.index;
+        })
+        .map(entry => entry.interactable);
+    }
+
+    // Helper to create a button interactable
+    function createButton(x, y, width, height, label, color) {
+      const id = `btn-${label}`;
+      const state = new InteractionState(
+        id,
+        { x, y },
+        { x: width, y: height }
+      );
+      state.tabIndex = 0;
+
+      const interactable = {
+        interactionState: state,
+        label,
+        color,
+        baseColor: color,
+        hoverColor: adjustColor(color, 20),
+        pressColor: adjustColor(color, -20),
+      };
+
+      const hoverable = {
+        type: BehaviorType.Hoverable,
+        state: 'idle',
+        onEnter: () => {
+          addLog(`Hover Enter: ${label}`);
+        },
+        onLeave: () => {
+          addLog(`Hover Leave: ${label}`);
+        },
+      };
+
+      const focusable = {
+        type: BehaviorType.Focusable,
+        state: 'idle',
+        onFocus: () => {
+          addLog(`Focused: ${label}`);
+        },
+        onBlur: () => {
+          addLog(`Blurred: ${label}`);
+        },
+      };
+
+      const clickable = {
+        type: BehaviorType.Clickable,
+        state: 'idle',
+        onPress: () => {
+          addLog(`Press: ${label}`);
+        },
+        onRelease: () => {
+          addLog(`Release: ${label}`);
+        },
+        onClick: () => {
+          addLog(`Click: ${label}`);
+        },
+        onDoubleClick: () => {
+          addLog(`Double Click: ${label}`);
+        },
+        onLongPress: () => {
+          addLog(`Long Press: ${label}`);
+        },
+      };
+
+      const selectable = {
+        type: BehaviorType.Selectable,
+        state: 'idle',
+        onSelect: () => {
+          addLog(`Selected: ${label}`);
+        },
+        onDeselect: () => {
+          addLog(`Deselected: ${label}`);
+        },
+      };
+
+      const disableable = {
+        type: BehaviorType.Disableable,
+        state: 'enabled',
+        onEnable: () => {
+          addLog(`Enabled: ${label}`);
+        },
+        onDisable: () => {
+          addLog(`Disabled: ${label}`);
+        },
+      };
+
+      system.register(
+        interactable,
+        hoverable,
+        focusable,
+        clickable,
+        selectable,
+        disableable
+      );
+
+      return interactable;
+    }
+
+    // Create buttons
+    const buttons = [
+      createButton(50, 50, 120, 50, 'Single', '#FF6B6B'),
+      createButton(200, 50, 120, 50, 'Double', '#4ECDC4'),
+      createButton(350, 50, 120, 50, 'Long', '#95E1D3'),
+      createButton(50, 150, 120, 50, 'Select 1', '#FFE66D'),
+      createButton(200, 150, 120, 50, 'Select 2', '#A8E6CF'),
+      createButton(350, 150, 120, 50, 'Select 3', '#FFD3B6'),
+    ];
+
+    // Handle disable checkbox
+    disableCheckbox.addEventListener('change', (e) => {
+      const button = buttons[0];
+      if (e.target.checked) {
+        button.interactionState.setState(
+          BehaviorType.Disableable,
+          'disabled'
+        );
+      } else {
+        button.interactionState.setState(
+          BehaviorType.Disableable,
+          'enabled'
+        );
+      }
+    });
+
+    // Game loop
+    let lastTime = Date.now();
+    function gameLoop() {
+      const now = Date.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      // Update interaction system
+      system.update(dt, InputManager);
+
+      // Clear canvas
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw buttons in z-index order
+      getRenderOrderedInteractables().forEach((button) => {
+        const state = button.interactionState;
+        const topLeft = getTopLeft(state);
+
+        // Determine color based on state
+        let color = button.baseColor;
+        if (state.isDisabled()) {
+          color = '#cccccc';
+        } else {
+          const hoverBehavior = state.behaviors.find(b => b.type === BehaviorType.Hoverable);
+          const clickBehavior = state.behaviors.find(b => b.type === BehaviorType.Clickable);
+
+          if (hoverBehavior?.state === 'hovered' && clickBehavior?.state === 'pressed') {
+            color = button.pressColor;
+          } else if (hoverBehavior?.state === 'hovered') {
+            color = button.hoverColor;
+          }
+        }
+
+        // Draw button
+        ctx.fillStyle = color;
+        ctx.fillRect(topLeft.x, topLeft.y, state.size.x, state.size.y);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(topLeft.x, topLeft.y, state.size.x, state.size.y);
+
+        // Draw focus indicator
+        const focusBehavior = state.behaviors.find(b => b.type === BehaviorType.Focusable);
+        if (focusBehavior?.state === 'focused') {
+          ctx.strokeStyle = '#0066ff';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(topLeft.x - 2, topLeft.y - 2, state.size.x + 4, state.size.y + 4);
+        }
+
+        // Draw selection indicator
+        const selectBehavior = state.behaviors.find(b => b.type === BehaviorType.Selectable);
+        if (selectBehavior?.state === 'selected') {
+          ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+          ctx.fillRect(topLeft.x, topLeft.y, state.size.x, state.size.y);
+        }
+
+        // Draw label
+        ctx.fillStyle = '#000';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          button.label,
+          topLeft.x + state.size.x / 2,
+          topLeft.y + state.size.y / 2
+        );
+      });
+
+      // Update input manager last
+      InputManager.update();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function adjustColor(color, amount) {
+      const num = parseInt(color.replace('#', ''), 16);
+      const amt = Math.round(2.55 * amount);
+      const R = Math.min(255, Math.max(0, (num >> 16) + amt));
+      const G = Math.min(255, Math.max(0, (num >> 8 & 0x00FF) + amt));
+      const B = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
+      return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+    }
+
+    function getTopLeft(state) {
+      const { anchor, position, size } = state;
+      const x = position.x - (anchor.includes('right') ? size.x : anchor.includes('left') || anchor === 'top' || anchor === 'bottom' ? 0 : size.x / 2);
+      const y = position.y - (anchor.includes('bottom') ? size.y : anchor.includes('top') || anchor === 'left' || anchor === 'right' ? 0 : size.y / 2);
+      return { x, y };
+    }
+
+    function addLog(message) {
+      const div = document.createElement('div');
+      div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+      eventLog.insertBefore(div, eventLog.firstChild);
+      while (eventLog.children.length > 10) {
+        eventLog.removeChild(eventLog.lastChild);
+      }
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sliders Demo - Interaction System</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+    }
+    .canvas-section {
+      display: flex;
+      flex-direction: column;
+    }
+    canvas {
+      border: 2px solid #333;
+      background: white;
+      display: block;
+    }
+    .info {
+      flex: 1;
+      padding: 20px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow-y: auto;
+      max-height: 600px;
+    }
+    .info h2 {
+      margin-top: 0;
+    }
+    .event-log {
+      font-family: monospace;
+      font-size: 12px;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 3px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .event-log div {
+      margin: 2px 0;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sliders Demo - Slideable & Dialable</h1>
+
+  <div class="container">
+    <div class="canvas-section">
+      <canvas id="canvas" width="700" height="500"></canvas>
+    </div>
+
+    <div class="info">
+      <h2>Demo Information</h2>
+      <p><strong>Behaviors demonstrated:</strong></p>
+      <ul>
+        <li><strong>Slideable:</strong> Linear sliders for value control</li>
+        <li><strong>Dialable:</strong> Rotational dials/knobs for value input</li>
+      </ul>
+
+      <p><strong>Try this:</strong></p>
+      <ul>
+        <li><strong>Horizontal Sliders:</strong> Drag the handle left/right to change values</li>
+        <li><strong>Vertical Sliders:</strong> Drag the handle up/down to change values</li>
+        <li><strong>Dials:</strong> Drag around the center point to rotate and change values</li>
+        <li>All controls have different ranges and step sizes</li>
+        <li>Watch the values update in real-time at the top of the canvas</li>
+      </ul>
+
+      <p><strong>Event Log:</strong></p>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+
+  <script src="../build/index.js"></script>
+  <script src="./input-manager.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const eventLog = document.getElementById('eventLog');
+
+    // Initialize InputManager
+    const InputManager = window.default;
+    InputManager.initialise({ element: canvas });
+
+    // Create interaction system
+    const system = new InteractionSystem();
+
+    function getRenderOrderedInteractables() {
+      return system.interactables
+        .map((interactable, index) => ({ interactable, index }))
+        .sort((a, b) => {
+          const zDiff = a.interactable.interactionState.zIndex - b.interactable.interactionState.zIndex;
+          if (zDiff !== 0) {
+            return zDiff;
+          }
+          return b.index - a.index;
+        })
+        .map(entry => entry.interactable);
+    }
+
+    function getTopLeft(state) {
+      const { anchor, position, size } = state;
+      const x = position.x - (anchor.includes('right') ? size.x : anchor.includes('left') || anchor === 'top' || anchor === 'bottom' ? 0 : size.x / 2);
+      const y = position.y - (anchor.includes('bottom') ? size.y : anchor.includes('top') || anchor === 'left' || anchor === 'right' ? 0 : size.y / 2);
+      return { x, y };
+    }
+
+    function addLog(message) {
+      const div = document.createElement('div');
+      div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+      eventLog.insertBefore(div, eventLog.firstChild);
+      while (eventLog.children.length > 10) {
+        eventLog.removeChild(eventLog.lastChild);
+      }
+    }
+
+    // ============= Horizontal Sliders =============
+
+    // Slider 1: 0-100 with no step
+    const slider1State = new InteractionState(
+      'slider-h-1',
+      { x: 150, y: 100 },
+      { x: 200, y: 30 }
+    );
+    slider1State.anchor = 'top-left';
+
+    const slider1 = {
+      interactionState: slider1State,
+      type: 'slider',
+      value: 50,
+      label: 'Volume',
+      color: '#4ECDC4',
+    };
+
+    const slider1Behavior = {
+      type: BehaviorType.Slideable,
+      state: 'idle',
+      value: 50,
+      minValue: 0,
+      maxValue: 100,
+      axis: 'x',
+      stepSize: undefined,
+      onSlideStart: () => addLog('Slider 1 started'),
+      onSlide: (value) => {
+        slider1.value = value;
+      },
+      onSlideEnd: () => addLog('Slider 1 ended'),
+      onCancel: () => addLog('Slider 1 cancelled'),
+    };
+
+    system.register(slider1, slider1Behavior);
+
+    // Slider 2: 0-200 with step of 10
+    const slider2State = new InteractionState(
+      'slider-h-2',
+      { x: 150, y: 200 },
+      { x: 200, y: 30 }
+    );
+    slider2State.anchor = 'top-left';
+
+    const slider2 = {
+      interactionState: slider2State,
+      type: 'slider',
+      value: 100,
+      label: 'Brightness',
+      color: '#FFD93D',
+    };
+
+    const slider2Behavior = {
+      type: BehaviorType.Slideable,
+      state: 'idle',
+      value: 100,
+      minValue: 0,
+      maxValue: 200,
+      axis: 'x',
+      stepSize: 10,
+      onSlideStart: () => addLog('Slider 2 started'),
+      onSlide: (value) => {
+        slider2.value = value;
+      },
+      onSlideEnd: () => addLog('Slider 2 ended'),
+      onCancel: () => addLog('Slider 2 cancelled'),
+    };
+
+    system.register(slider2, slider2Behavior);
+
+    // ============= Vertical Sliders =============
+
+    // Slider 3: 0-50 vertical
+    const slider3State = new InteractionState(
+      'slider-v-1',
+      { x: 480, y: 80 },
+      { x: 30, y: 150 }
+    );
+    slider3State.anchor = 'top-left';
+
+    const slider3 = {
+      interactionState: slider3State,
+      type: 'slider',
+      value: 25,
+      label: 'Treble',
+      color: '#6C5CE7',
+    };
+
+    const slider3Behavior = {
+      type: BehaviorType.Slideable,
+      state: 'idle',
+      value: 25,
+      minValue: 0,
+      maxValue: 50,
+      axis: 'y',
+      stepSize: undefined,
+      onSlideStart: () => addLog('Slider 3 started'),
+      onSlide: (value) => {
+        slider3.value = value;
+      },
+      onSlideEnd: () => addLog('Slider 3 ended'),
+      onCancel: () => addLog('Slider 3 cancelled'),
+    };
+
+    system.register(slider3, slider3Behavior);
+
+    // Slider 4: -100 to 100 vertical
+    const slider4State = new InteractionState(
+      'slider-v-2',
+      { x: 580, y: 80 },
+      { x: 30, y: 150 }
+    );
+    slider4State.anchor = 'top-left';
+
+    const slider4 = {
+      interactionState: slider4State,
+      type: 'slider',
+      value: 0,
+      label: 'Bass',
+      color: '#FF7675',
+    };
+
+    const slider4Behavior = {
+      type: BehaviorType.Slideable,
+      state: 'idle',
+      value: 0,
+      minValue: -100,
+      maxValue: 100,
+      axis: 'y',
+      stepSize: 5,
+      onSlideStart: () => addLog('Slider 4 started'),
+      onSlide: (value) => {
+        slider4.value = value;
+      },
+      onSlideEnd: () => addLog('Slider 4 ended'),
+      onCancel: () => addLog('Slider 4 cancelled'),
+    };
+
+    system.register(slider4, slider4Behavior);
+
+    // ============= Dialable Controls =============
+
+    // Dial 1: Basic dial 0-100
+    const dial1State = new InteractionState(
+      'dial-1',
+      { x: 150, y: 380 },
+      { x: 100, y: 100 }
+    );
+
+    const dial1 = {
+      interactionState: dial1State,
+      type: 'dial',
+      angle: 0,
+      value: 50,
+      label: 'Saturation',
+      color: '#A8E6CF',
+    };
+
+    const dial1Behavior = {
+      type: BehaviorType.Dialable,
+      state: 'idle',
+      angle: 0,
+      minAngle: 0,
+      maxAngle: Math.PI * 1.5,
+      value: 50,
+      minValue: 0,
+      maxValue: 100,
+      stepSize: 1,
+      snapAngle: Math.PI / 12,
+      rotationCenter: { x: 150, y: 380 },
+      onTurnStart: () => addLog('Dial 1 started'),
+      onTurn: (value) => {
+        dial1.value = value;
+        // Calculate angle from value
+        const angle = (value - dial1Behavior.minValue) / (dial1Behavior.maxValue - dial1Behavior.minValue) * (dial1Behavior.maxAngle - dial1Behavior.minAngle) + dial1Behavior.minAngle;
+        dial1.angle = angle;
+      },
+      onTurnEnd: () => addLog('Dial 1 ended'),
+      onCancel: () => addLog('Dial 1 cancelled'),
+    };
+
+    system.register(dial1, dial1Behavior);
+
+    // Dial 2: Full rotation dial
+    const dial2State = new InteractionState(
+      'dial-2',
+      { x: 350, y: 380 },
+      { x: 100, y: 100 }
+    );
+
+    const dial2 = {
+      interactionState: dial2State,
+      type: 'dial',
+      angle: 0,
+      value: 0,
+      label: 'Hue',
+      color: '#FFD3B6',
+    };
+
+    const dial2Behavior = {
+      type: BehaviorType.Dialable,
+      state: 'idle',
+      angle: 0,
+      minAngle: -Math.PI,
+      maxAngle: Math.PI,
+      value: 0,
+      minValue: 0,
+      maxValue: 360,
+      stepSize: 5,
+      snapAngle: Math.PI / 12,
+      rotationCenter: { x: 350, y: 380 },
+      onTurnStart: () => addLog('Dial 2 started'),
+      onTurn: (value) => {
+        dial2.value = value;
+        // Calculate angle from value (0-360 maps to full circle)
+        const normalized = (value - 0) / (360 - 0);
+        const angle = -Math.PI + normalized * (Math.PI - (-Math.PI));
+        dial2.angle = angle;
+      },
+      onTurnEnd: () => addLog('Dial 2 ended'),
+      onCancel: () => addLog('Dial 2 cancelled'),
+    };
+
+    system.register(dial2, dial2Behavior);
+
+    // Dial 3: Fine control dial
+    const dial3State = new InteractionState(
+      'dial-3',
+      { x: 550, y: 380 },
+      { x: 100, y: 100 }
+    );
+
+    const dial3 = {
+      interactionState: dial3State,
+      type: 'dial',
+      angle: 0,
+      value: 50,
+      label: 'Focus',
+      color: '#BB86FC',
+    };
+
+    const dial3Behavior = {
+      type: BehaviorType.Dialable,
+      state: 'idle',
+      angle: 0,
+      minAngle: -Math.PI / 2,
+      maxAngle: Math.PI / 2,
+      value: 50,
+      minValue: 0,
+      maxValue: 100,
+      stepSize: 0.5,
+      rotationCenter: { x: 550, y: 380 },
+      onTurnStart: () => addLog('Dial 3 started'),
+      onTurn: (value) => {
+        dial3.value = value;
+        const normalized = (value - 0) / (100 - 0);
+        const angle = -Math.PI / 2 + normalized * (Math.PI / 2 - (-Math.PI / 2));
+        dial3.angle = angle;
+      },
+      onTurnEnd: () => addLog('Dial 3 ended'),
+      onCancel: () => addLog('Dial 3 cancelled'),
+    };
+
+    system.register(dial3, dial3Behavior);
+
+    // ============= Game Loop =============
+
+    let lastTime = Date.now();
+    function gameLoop() {
+      const now = Date.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      system.update(dt, InputManager);
+
+      // Clear canvas
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw title and values
+      ctx.fillStyle = '#333';
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('Slider 1: ' + slider1.value.toFixed(1), 20, 30);
+      ctx.fillText('Slider 2: ' + slider2.value.toFixed(1), 20, 55);
+      ctx.fillText('Slider 3: ' + slider3.value.toFixed(1), 370, 30);
+      ctx.fillText('Slider 4: ' + slider4.value.toFixed(1), 470, 30);
+
+      // Draw controls in z-index order
+      getRenderOrderedInteractables().forEach(interactable => {
+        const behavior = interactable.interactionState.behaviors[0];
+
+        if (behavior?.type === BehaviorType.Slideable) {
+          const topLeft = getTopLeft(interactable.interactionState);
+          const isHorizontal = behavior.axis === 'x';
+
+          ctx.fillStyle = '#ddd';
+          if (isHorizontal) {
+            ctx.fillRect(topLeft.x, topLeft.y + 12, interactable.interactionState.size.x, 6);
+          } else {
+            ctx.fillRect(topLeft.x + 12, topLeft.y, 6, interactable.interactionState.size.y);
+          }
+
+          const ratio = (interactable.value - behavior.minValue) / (behavior.maxValue - behavior.minValue);
+          let handleX;
+          let handleY;
+
+          if (isHorizontal) {
+            handleX = topLeft.x + ratio * interactable.interactionState.size.x;
+            handleY = topLeft.y + 15;
+          } else {
+            handleX = topLeft.x + 15;
+            handleY = topLeft.y + ratio * interactable.interactionState.size.y;
+          }
+
+          ctx.fillStyle = behavior.state === 'idle' ? interactable.color : '#333';
+          ctx.beginPath();
+          ctx.arc(handleX, handleY, 7, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#666';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'center';
+          if (isHorizontal) {
+            ctx.fillText(interactable.label, topLeft.x + interactable.interactionState.size.x / 2, topLeft.y - 5);
+          } else {
+            ctx.save();
+            ctx.translate(topLeft.x - 20, topLeft.y + interactable.interactionState.size.y / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(interactable.label, 0, 0);
+            ctx.restore();
+          }
+
+          return;
+        }
+
+        if (behavior?.type === BehaviorType.Dialable) {
+          const cx = interactable.interactionState.position.x;
+          const cy = interactable.interactionState.position.y;
+          const radius = 40;
+
+          ctx.fillStyle = interactable.color;
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(interactable.angle) * (radius - 5), cy + Math.sin(interactable.angle) * (radius - 5));
+          ctx.stroke();
+
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 14px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(interactable.value.toFixed(0), cx, cy);
+
+          ctx.fillStyle = '#666';
+          ctx.font = '12px Arial';
+          ctx.fillText(interactable.label, cx, cy + radius + 20);
+        }
+      });
+
+      // Update input manager last
+      InputManager.update();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>

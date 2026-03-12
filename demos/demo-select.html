@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select Demo - Interaction System</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+    }
+    .canvas-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    canvas {
+      border: 2px solid #333;
+      background: white;
+      display: block;
+    }
+    .controls {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      padding: 12px 16px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      flex-wrap: wrap;
+    }
+    .controls label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .hint {
+      color: #666;
+      font-size: 14px;
+    }
+    .info {
+      flex: 1;
+      padding: 20px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow-y: auto;
+      max-height: 700px;
+    }
+    .info h2 {
+      margin-top: 0;
+    }
+    .legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 12px 0 20px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+    }
+    .event-log {
+      font-family: monospace;
+      font-size: 12px;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 3px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .event-log div {
+      margin: 2px 0;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Select Demo - Multi-select, Single-select & Drag-to-select</h1>
+
+  <div class="container">
+    <div class="canvas-section">
+      <canvas id="canvas" width="920" height="560"></canvas>
+
+      <div class="controls">
+        <label>
+          <input type="checkbox" id="dragSelectToggle" checked>
+          Enable drag selection box
+        </label>
+        <span class="hint">Hold <strong>Ctrl</strong> while clicking or drag-selecting to add to the current selection.</span>
+      </div>
+    </div>
+
+    <div class="info">
+      <h2>Demo Information</h2>
+      <p><strong>Behaviors demonstrated:</strong></p>
+      <ul>
+        <li><strong>Draggable:</strong> Drag any card around the board</li>
+        <li><strong>Selectable:</strong> Click to select and click empty space to deselect</li>
+        <li><strong>Multi-selectable:</strong> Most cards allow additive selection with <strong>Ctrl</strong></li>
+        <li><strong>Selection box:</strong> When enabled, dragging on empty space selects all touched multi-select items</li>
+      </ul>
+
+      <p><strong>Try this:</strong></p>
+      <ul>
+        <li>Click a card to select it</li>
+        <li>Hold <strong>Ctrl</strong> and click multiple <strong>Multi</strong> cards to build up a selection</li>
+        <li>Drag on empty canvas space to create a marquee selection box</li>
+        <li>Hold <strong>Ctrl</strong> while marquee selecting to add to the current selection</li>
+        <li>Click empty space without dragging to clear all selected items</li>
+        <li>Try the <strong>Single</strong> cards: they stay single-select only and ignore marquee selection</li>
+      </ul>
+
+      <div class="legend">
+        <div class="legend-item"><span class="swatch" style="background:#4ECDC4"></span> Multi-selectable</div>
+        <div class="legend-item"><span class="swatch" style="background:#FF7675"></span> Single-select only</div>
+        <div class="legend-item"><span class="swatch" style="background:rgba(56, 118, 255, 0.22)"></span> Selection box</div>
+      </div>
+
+      <p><strong>Event Log:</strong></p>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+
+  <script src="../build/index.js"></script>
+  <script src="./input-manager.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const eventLog = document.getElementById('eventLog');
+    const dragSelectToggle = document.getElementById('dragSelectToggle');
+
+    const InputManager = window.default;
+    InputManager.initialise({ element: canvas });
+
+    const system = new InteractionSystem({
+      thresholds: {
+        dragSelect: 4,
+      },
+    });
+    system.dragSelectEnabled = dragSelectToggle.checked;
+
+    dragSelectToggle.addEventListener('change', event => {
+      system.dragSelectEnabled = event.target.checked;
+      addLog(
+        event.target.checked
+          ? 'Drag selection enabled'
+          : 'Drag selection disabled'
+      );
+    });
+
+    function adjustColor(color, amount) {
+      const num = parseInt(color.replace('#', ''), 16);
+      const amt = Math.round(2.55 * amount);
+      const red = Math.min(255, Math.max(0, (num >> 16) + amt));
+      const green = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amt));
+      const blue = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
+      return '#' + (0x1000000 + red * 0x10000 + green * 0x100 + blue).toString(16).slice(1);
+    }
+
+    function addLog(message) {
+      const div = document.createElement('div');
+      div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+      eventLog.insertBefore(div, eventLog.firstChild);
+      while (eventLog.children.length > 12) {
+        eventLog.removeChild(eventLog.lastChild);
+      }
+    }
+
+    function getTopLeft(state) {
+      const { anchor, position, size } = state;
+      const x = position.x - (anchor.includes('right') ? size.x : anchor.includes('left') || anchor === 'top' || anchor === 'bottom' ? 0 : size.x / 2);
+      const y = position.y - (anchor.includes('bottom') ? size.y : anchor.includes('top') || anchor === 'left' || anchor === 'right' ? 0 : size.y / 2);
+      return { x, y };
+    }
+
+    function getRenderOrderedInteractables() {
+      return system.interactables
+        .map((interactable, index) => ({ interactable, index }))
+        .sort((a, b) => {
+          const zDiff = a.interactable.interactionState.zIndex - b.interactable.interactionState.zIndex;
+          if (zDiff !== 0) {
+            return zDiff;
+          }
+          return b.index - a.index;
+        })
+        .map(entry => entry.interactable);
+    }
+
+    function createItem(config) {
+      const state = new InteractionState(
+        config.id,
+        { x: config.x, y: config.y },
+        { x: config.width ?? 72, y: config.height ?? 72 }
+      );
+      state.anchor = 'top-left';
+      state.zIndex = config.zIndex ?? 0;
+
+      const interactable = {
+        interactionState: state,
+        label: config.label,
+        color: config.color,
+        baseColor: config.color,
+        hoverColor: adjustColor(config.color, 10),
+        selectedColor: adjustColor(config.color, -8),
+        tag: config.multiSelect ? 'Multi' : 'Single',
+        multiSelect: !!config.multiSelect,
+      };
+
+      const hoverable = {
+        type: BehaviorType.Hoverable,
+        state: 'idle',
+        onEnter: () => {},
+        onLeave: () => {},
+      };
+
+      const selectable = {
+        type: BehaviorType.Selectable,
+        state: 'idle',
+        multiSelect: !!config.multiSelect,
+        multiSelectKey: ['Ctrl'],
+        bringToFrontOnSelect: true,
+        onSelect: () => addLog(`Selected ${config.label}`),
+        onDeselect: () => addLog(`Deselected ${config.label}`),
+      };
+
+      const draggable = {
+        type: BehaviorType.Draggable,
+        state: 'idle',
+        bringToFrontOnDrag: true,
+        onDragStart: () => addLog(`Drag start ${config.label}`),
+        onDrag: pos => {
+          state.position.x = pos.x;
+          state.position.y = pos.y;
+        },
+        onDragEnd: () => addLog(`Drag end ${config.label}`),
+        onCancel: () => addLog(`Drag cancel ${config.label}`),
+      };
+
+      system.register(interactable, hoverable, selectable, draggable);
+      return interactable;
+    }
+
+    const items = [
+      createItem({ id: 'item-1', label: 'A1', x: 70, y: 80, color: '#4ECDC4', multiSelect: true }),
+      createItem({ id: 'item-2', label: 'A2', x: 170, y: 90, color: '#6BCB77', multiSelect: true }),
+      createItem({ id: 'item-3', label: 'A3', x: 270, y: 76, color: '#45B7D1', multiSelect: true }),
+      createItem({ id: 'item-4', label: 'B1', x: 110, y: 210, color: '#FFD166', multiSelect: true }),
+      createItem({ id: 'item-5', label: 'B2', x: 240, y: 200, color: '#C77DFF', multiSelect: true }),
+      createItem({ id: 'item-6', label: 'B3', x: 350, y: 225, color: '#95E1D3', multiSelect: true }),
+      createItem({ id: 'item-7', label: 'C1', x: 500, y: 100, color: '#FF7675', multiSelect: false }),
+      createItem({ id: 'item-8', label: 'C2', x: 615, y: 190, color: '#F94144', multiSelect: false }),
+      createItem({ id: 'item-9', label: 'C3', x: 735, y: 125, color: '#E63946', multiSelect: false }),
+      createItem({ id: 'item-10', label: 'D1', x: 510, y: 320, color: '#4D96FF', multiSelect: true }),
+      createItem({ id: 'item-11', label: 'D2', x: 635, y: 350, color: '#00C2A8', multiSelect: true }),
+      createItem({ id: 'item-12', label: 'D3', x: 770, y: 290, color: '#8AC926', multiSelect: true }),
+    ];
+
+    function drawBoard() {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#edf1f5';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = '#5c6773';
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('Multi-select area', 24, 30);
+      ctx.fillText('Single-select examples', 490, 30);
+    }
+
+    function drawItem(item) {
+      const state = item.interactionState;
+      const topLeft = getTopLeft(state);
+      const hoverBehavior = state.behaviors.find(b => b.type === BehaviorType.Hoverable);
+      const selectBehavior = state.behaviors.find(b => b.type === BehaviorType.Selectable);
+      const dragBehavior = state.behaviors.find(b => b.type === BehaviorType.Draggable);
+
+      let fillColor = item.baseColor;
+      if (selectBehavior?.state === 'selected') {
+        fillColor = item.selectedColor;
+      } else if (hoverBehavior?.state === 'hovered') {
+        fillColor = item.hoverColor;
+      }
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.12)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(topLeft.x, topLeft.y, state.size.x, state.size.y);
+      ctx.restore();
+
+      ctx.strokeStyle = selectBehavior?.state === 'selected' ? '#1d4ed8' : '#2f3640';
+      ctx.lineWidth = selectBehavior?.state === 'selected' ? 3 : 2;
+      ctx.strokeRect(topLeft.x, topLeft.y, state.size.x, state.size.y);
+
+      if (dragBehavior?.state === 'dragging') {
+        ctx.strokeStyle = 'rgba(29, 78, 216, 0.45)';
+        ctx.lineWidth = 5;
+        ctx.strokeRect(topLeft.x - 2, topLeft.y - 2, state.size.x + 4, state.size.y + 4);
+      }
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.fillRect(topLeft.x + 8, topLeft.y + 8, 46, 22);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(topLeft.x + 8, topLeft.y + 8, 46, 22);
+
+      ctx.fillStyle = '#111827';
+      ctx.font = 'bold 18px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(item.label, topLeft.x + state.size.x / 2, topLeft.y + state.size.y / 2 + 6);
+
+      ctx.font = '12px Arial';
+      ctx.fillStyle = item.multiSelect ? '#0f766e' : '#b42318';
+      ctx.textAlign = 'left';
+      ctx.fillText(item.tag, topLeft.x + 14, topLeft.y + 23);
+    }
+
+    function drawSelectionBox() {
+      const selectionBox = system.selectionBox;
+      if (!selectionBox) {
+        return;
+      }
+
+      ctx.fillStyle = 'rgba(56, 118, 255, 0.22)';
+      ctx.strokeStyle = 'rgba(56, 118, 255, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(
+        selectionBox.topLeft.x,
+        selectionBox.topLeft.y,
+        selectionBox.size.x,
+        selectionBox.size.y
+      );
+      ctx.strokeRect(
+        selectionBox.topLeft.x,
+        selectionBox.topLeft.y,
+        selectionBox.size.x,
+        selectionBox.size.y
+      );
+    }
+
+    let lastTime = Date.now();
+    function gameLoop() {
+      const now = Date.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      system.update(dt, InputManager);
+
+      drawBoard();
+      getRenderOrderedInteractables().forEach(drawItem);
+      drawSelectionBox();
+
+      InputManager.update();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
